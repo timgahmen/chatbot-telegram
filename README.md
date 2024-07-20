@@ -11,6 +11,9 @@
 
 > Yet another telegram ChatGPT bot which allows you to setup and run your bot with one simple command. PRs and suggestions are welcome. Leave a 🌟 if you find this project helpful.
 
+> ⚠️ Warning: The underlying model is currently `gpt-3.5-turbo`, which is already fine-tuned for conversation **but costs money**. *A new OpenAI account comes with $18 free credit though, which is enough to run this bot for some time.*
+
+> Support for using a reverse proxy to access the origin ChatGPT will be added soon.
 
 <div  align="center">
 <video src="https://user-images.githubusercontent.com/13758730/206657062-eec01c2a-0ef8-4605-b0b9-19a48fff236e.mp4"/>
@@ -35,14 +38,14 @@
 3. Cache dependencies and check integrity with `lock.json`, *you only need to do this once*.
 
 ```
-deno cache --lock=lock.json
+deno cache --lock=lock.json chatbot.ts
 ```
 
 ## 🔮 Usage
 1. Complete Telegram bot token and ChatGPT session token in `env.example`.
 ```
 BOT_TOKEN=YOUR_BOT_TOKEN
-SESSION_TOKEN=YOUR_SESSION_TOKEN
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 To get your session token, see [Get ChatGPT Session Token](#-get-chatgpt-session-token).
 
@@ -65,13 +68,11 @@ You can also run with these parammeters to give permission by default.
 deno run --allow-read --allow-env --allow-net chatbot.ts
 ```
 
-## 🔑 Get ChatGPT Session Token
-1. Open ChatGPT playground in your browser.
-2. Right click → Inspect → Storage(Safari) / Application(Chrome) → Cookies, find the key `__Secure-next-auth.session-token` and copy the value of it.
-    
-    ![CleanShot 2022-12-09 at 15 34 16@2x](https://user-images.githubusercontent.com/13758730/206649379-10356c45-245e-4fdf-9c44-a83541af1f94.png)
-    
-    This is your session token, keep it safe.
+## 🔑 Get OpenAI API Key
+1. Sign up for an OpenAI account at https://beta.openai.com/signup
+
+2. Generate a new API key at https://platform.openai.com/account/api-keys. This is your API key, anyone can use it to access your account which may cause unexpected charges. Keep it secret!
+
 3. Paste it in your `.env` file.
 
 ## 💌 Credits

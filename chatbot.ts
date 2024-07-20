@@ -1,16 +1,16 @@
 
 import _ from "npm:lodash@^4.17.21"
-import { ChatGPTAPI, ChatGPTConversation } from "npm:chatgpt@^2.0.4"
+ import { ChatGPTAPI, ChatMessage } from "npm:chatgpt@5.0.6"
 // @deno-types="npm:@types/node-telegram-bot-api@^0.57.6"
 import TelegramBot from "npm:node-telegram-bot-api@^0.60.0"
 
 import "https://deno.land/x/dotenv@v3.2.0/load.ts"
 
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN")
-const SESSION_TOKEN = Deno.env.get("SESSION_TOKEN")
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")
 
-if (!BOT_TOKEN || !SESSION_TOKEN) {
-    logWithTime("⛔️ BOT_TOKEN and SESSION_TOKEN must be set")
+if (!BOT_TOKEN || !OPENAI_API_KEY) {
+    logWithTime("⛔️ BOT_TOKEN and OPENAI_API_KEY must be set")
     Deno.exit(1)
 }
 
@@ -28,20 +28,18 @@ if (!botName) {
 }
 
 // Start ChatGPT API
-
 let chatGPTAPI: ChatGPTAPI
 try {
-    chatGPTAPI = new ChatGPTAPI({sessionToken: SESSION_TOKEN})
-    await chatGPTAPI.ensureAuth()
-    await chatGPTAPI.refreshAccessToken()
+    chatGPTAPI = new ChatGPTAPI({apiKey: OPENAI_API_KEY})
 } catch (err) {
     logWithTime("⛔️ ChatGPT API error:", err.message)
     Deno.exit(1)
 }
 logWithTime("🔮 ChatGPT API has started...")
 
-let conversation: ChatGPTConversation = chatGPTAPI.getConversation()
-logWithTime("🔄 ChatGPT Conversation initialized")
+// Initialize convertionID and parentMessageID
+let conversationID: string | undefined
+let parentMessageID: string | undefined
 
 // Handle messages
 bot.on("message", async (msg) => {
@@ -49,15 +47,19 @@ bot.on("message", async (msg) => {
 })
 
 function handleCommand(msg: TelegramBot.Message): boolean {
+    const trimedText = msg.text?.replace(`@${botName}`, "").trim()
+
     // reload command
-    if (msg.text === "/reload") {
-        conversation = chatGPTAPI.getConversation()
+    if (trimedText === "/reload" || trimedText == "/reset") {
+        conversationID = undefined
+        parentMessageID = undefined
         bot.sendMessage(msg.chat.id, "🔄 Conversation has been reset, enjoy!")
-        logWithTime("🔄 Conversation has been reset, new conversation id")
+        logWithTime("🔄 Conversation has been reset")
         return true
     }
+
     // help command
-    if (msg.text === "/help") {
+    if (trimedText === "/help") {
         bot.sendMessage(msg.chat.id, "🤖 This is a chatbot powered by ChatGPT. You can use the following commands:\n\n/reload - Reset the conversation\n/help - Show this message")
         return true
     }
@@ -72,18 +74,12 @@ async function handleMessage(msg: TelegramBot.Message) {
         return
     }
 
-    // Only respond to messages that start with @botName in a group chat
+    // Only respond to messages that start with @botName or a valid command in a group chat
     if (msg.chat.type === "group" || msg.chat.type === "supergroup") {
         if (!msg.text.startsWith(`@${botName}`)) {
+            handleCommand(msg)
             return
         }
-    }
-    
-
-    // Remove @botName from message
-    const message = msg.text.replace(`@${botName}`, "").trim()
-    if (message === "") {
-        return
     }
 
     // Handle commands if needed
@@ -91,23 +87,40 @@ async function handleMessage(msg: TelegramBot.Message) {
         return
     }
 
+    // Remove @botName from message
+    const message = msg.text.replace(`@${botName}`, "").trim()
+    if (message === "") {
+        return
+    }
+
     logWithTime(`📩 Message from ${msg.chat.id}:`, message)
 
     // Send a message to the chat acknowledging receipt of their message
-    let respMsg = await bot.sendMessage(chatId, "🤔", {
-        reply_to_message_id: msg.message_id,
-    })
-    bot.sendChatAction(chatId, "typing")
+    let respMsg: TelegramBot.Message
+    try {
+        respMsg = await bot.sendMessage(chatId, "🤔", {
+            reply_to_message_id: msg.message_id,
+        })
+        bot.sendChatAction(chatId, "typing")
+    } catch (err) {
+        logWithTime("⛔️ Telegram API error:", err.message)
+        return
+    }
 
     // Send message to ChatGPT
     try {
-        const response = await conversation.sendMessage(message, {
-            onProgress: _.throttle(async (partialResponse: string) => {
-                respMsg = await editMessage(respMsg, partialResponse)
+        const response: ChatMessage = await chatGPTAPI.sendMessage(message, {
+            conversationId: conversationID,
+            parentMessageId: parentMessageID,
+            onProgress: _.throttle(async (partialResponse: ChatMessage) => {
+                respMsg = await editMessage(respMsg, partialResponse.text, false)
                 bot.sendChatAction(chatId, "typing")
             }, 4000, { leading: true, trailing: false }),
         })
-        editMessage(respMsg, response)
+        // Update conversationID and parentMessageID
+        conversationID = response.conversationId
+        parentMessageID = response.id
+        editMessage(respMsg, response.text)
         logWithTime("📨 Response:", response)
     } catch (err) {
         logWithTime("⛔️ ChatGPT API error:", err.message)
@@ -122,7 +135,7 @@ async function handleMessage(msg: TelegramBot.Message) {
 
 // Edit telegram message
 async function editMessage(msg: TelegramBot.Message, text: string, needParse = true): Promise<TelegramBot.Message> {
-    if (msg.text === text) {
+    if (msg.text === text || !text  || text.trim() === "") {
         return msg
     }
     try {
